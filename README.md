@@ -1,78 +1,92 @@
-_Manifests here require Kubernetes 1.8 now.
-On earlier versions use [v2.1.0](https://github.com/Yolean/kubernetes-kafka/tree/v2.1.0)._
+# Kafka for Kubernetes
 
-# Kafka on Kubernetes
+This community seeks to provide:
+ * Production-worthy Kafka setup for persistent (domain- and ops-) data at small scale.
+ * Operational knowledge, biased towards resilience over throughput, as Kubernetes manifest.
+ * A platform for event-driven (streaming!) microservices design using Kubernetes.
 
-Transparent Kafka setup that you can grow with.
-Good for both experiments and production.
+To quote [@arthurk](https://github.com/Yolean/kubernetes-kafka/issues/82#issuecomment-337532548):
 
-How to use:
- * Good to know: you'll likely want to fork this repo. It prioritizes clarity over configurability, using plain manifests and .propeties files; no client side logic.
- * Run a Kubernetes cluster, [minikube](https://github.com/kubernetes/minikube) or real.
- * Quickstart: use the `kubectl apply`s below.
- * Have a look at [addon](https://github.com/Yolean/kubernetes-kafka/labels/addon)s, or the official forks:
-   - [kubernetes-kafka-small](https://github.com/Reposoft/kubernetes-kafka-small) for single-node clusters like Minikube.
-   - [StreamingMicroservicesPlatform](https://github.com/StreamingMicroservicesPlatform/kubernetes-kafka) Like Confluent's [platform quickstart](https://docs.confluent.io/current/connect/quickstart.html) but for Kubernetes.
- * Join the discussion in issues and PRs.
+> thanks for creating and maintaining this Kubernetes files, they're up-to-date (unlike the kubernetes contrib files, don't require helm and work great!
 
-No readable readme can properly introduce both [Kafka](http://kafka.apache.org/) and [Kubernetes](https://kubernetes.io/),
-but we think the combination of the two is a great backbone for microservices.
-Back when we read [Newman](http://samnewman.io/books/building_microservices/) we were beginners with both.
-Now we've read [Kleppmann](http://dataintensive.net/), [Confluent](https://www.confluent.io/blog/) and [SRE](https://landing.google.com/sre/book.html) and enjoy this "Streaming Platform" lock-in :smile:.
+## Getting started
 
-We also think the plain-yaml approach of this project is easier to understand and evolve than [helm](https://github.com/kubernetes/helm) [chart](https://github.com/kubernetes/charts/tree/master/incubator/kafka)s.
+We suggest you `apply -f` manifests in the following order:
+ * [namespace](./00-namespace.yml)
+ * [./rbac-namespace-default](./rbac-namespace-default/)
+ * [./zookeeper](./zookeeper/)
+ * [./kafka](./kafka/)
 
-## What you get
+That'll give you client "bootstrap" `bootstrap.kafka.svc.cluster.local:9092`.
 
-Keep an eye on `kubectl --namespace kafka get pods -w`.
+## Fork
 
-The goal is to provide [Bootstrap servers](http://kafka.apache.org/documentation/#producerconfigs): `kafka-0.broker.kafka.svc.cluster.local:9092,kafka-1.broker.kafka.svc.cluster.local:9092,kafka-2.broker.kafka.svc.cluster.local:9092`
-`
+Our only dependency is `kubectl`. Not because we dislike Helm or Operators, but because we think plain manifests make it easier to collaborate.
+If you begin to rely on this kafka setup we recommend you fork, for example to edit [broker config](https://github.com/Yolean/kubernetes-kafka/blob/master/kafka/10broker-config.yml#L47).
 
-Zookeeper at `zookeeper.kafka.svc.cluster.local:2181`.
+## Kustomize
 
-## Prepare storage classes
+With the introduction of [app customization](https://kubectl.docs.kubernetes.io/pages/app_customization/introduction.html) in `kubectl` 1.14 there's an alternative to forks. We as a community can maintain a set of overlays.
 
-For Minikube run `kubectl apply -f configure/minikube-storageclass-broker.yml; kubectl apply -f configure/minikube-storageclass-zookeeper.yml`.
+See the [variants](./variants) folder for different overlays. For example to scale to 1 kafka broker try `kubectl apply -k variants/scale-1/`.
+Variants also include examples of how to configure volumes for GKE, AWS and AKS with different storage classes.
 
-There's a similar setup for GKE, `configure/gke-*`. You might want to tweak it before creating.
-
-## Start Zookeeper
-
-The [Kafka book](https://www.confluent.io/resources/kafka-definitive-guide-preview-edition/) recommends that Kafka has its own Zookeeper cluster with at least 5 instances.
+### Quickstart
 
 ```
-kubectl apply -f ./zookeeper/
+kubectl create namespace kafka && \
+kubectl apply -k github.com/Yolean/kubernetes-kafka/variants/dev-small/?ref=v6.0.3
 ```
 
-To support automatic migration in the face of availability zone unavailability we mix persistent and ephemeral storage.
+When all pods are Ready, test with for example `kafkacat -b localhost:9094 -L` over `kubectl -n kafka port-forward kafka-0 9094`.
 
-## Start Kafka
+### Maintaining your own kustomization
+
+Start your variant as a new folder in your choice of version control, with a base `kustomization.yaml` pointing to a tag or revision in this repository:
 
 ```
-kubectl apply -f ./kafka/
+bases:
+- github.com/Yolean/kubernetes-kafka/rbac-namespace-default/?ref=60d01b5
+- github.com/Yolean/kubernetes-kafka/kafka/?ref=60d01b5
+- github.com/Yolean/kubernetes-kafka/zookeeper/?ref=60d01b5
 ```
 
-You might want to verify in logs that Kafka found its own DNS name(s) correctly. Look for records like:
-```
-kubectl -n kafka logs kafka-0 | grep "Registered broker"
-# INFO Registered broker 0 at path /brokers/ids/0 with addresses: PLAINTEXT -> EndPoint(kafka-0.broker.kafka.svc.cluster.local,9092,PLAINTEXT)
-```
+Then pick and chose from patches our [example variants](https://github.com/Yolean/kubernetes-kafka/tree/master/variants) to tailor your Kafka setup.
 
-That's it. Just add business value :wink:.
+## Version history
 
-## RBAC
+| tag    | k8s ≥ | highlights  |
+| ------ | ----- | ----------- |
+| v7.0.0 | 1.15+ | [Breaking](https://github.com/Yolean/kubernetes-kafka/pull/311#issuecomment-657181714) with [nonroot](./nonroot/) and [native](./native/) bases |
+| v6.0.x | 1.13+ | Kafka [2.4.0](https://github.com/Yolean/kubernetes-kafka/pull/297) + [standard storage class](https://github.com/Yolean/kubernetes-kafka/pull/294) |
+| v6.0.0 | 1.11+ | Kafka 2.2.0 + `apply -k` (kubectl 1.14+) + [#270](https://github.com/Yolean/kubernetes-kafka/pull/270) |
+| v5.1.0 | 1.11+ | Kafka 2.1.1 |
+| v5.0.3 | 1.11+ | Zookeeper fix [#227](https://github.com/Yolean/kubernetes-kafka/pull/227) + [maxClientCnxns=1](https://github.com/Yolean/kubernetes-kafka/pull/230#issuecomment-445953857) |
+| v5.0  | 1.11+  | Destabilize because in Docker we want Java 11 [#197](https://github.com/Yolean/kubernetes-kafka/pull/197) [#191](https://github.com/Yolean/kubernetes-kafka/pull/191) |
+| v4.3.1 | 1.9+  | Critical Zookeeper persistence fix [#228](https://github.com/Yolean/kubernetes-kafka/pull/228) |
+| v4.3  | 1.9+   | Adds a proper shutdown hook [#207](https://github.com/Yolean/kubernetes-kafka/pull/207) |
+| v4.2  | 1.9+   | Kafka 1.0.2 and tools upgrade |
+|       |        | ... see [releases](https://github.com/Yolean/kubernetes-kafka/releases) for full history ... |
+| v1.0  | 1      | Stateful? In Kubernetes? In 2016? Yes. |
 
-For clusters that enfoce [RBAC](https://kubernetes.io/docs/admin/authorization/rbac/) there's a minimal set of policies in
-```
-kubectl apply -f rbac-namespace-default/
-```
+## Monitoring
 
-## Tests
+Have a look at:
+ * [./prometheus](./prometheus/)
+ * [./linkedin-burrow](./linkedin-burrow/)
+ * [./consumers-prometheus](./consumers-prometheus/)
+ * [or plain JMX](https://github.com/Yolean/kubernetes-kafka/pull/96)
+ * what's happening in the [monitoring](https://github.com/Yolean/kubernetes-kafka/labels/monitoring) label.
+ * Note that this repo is intentionally light on [automation](https://github.com/Yolean/kubernetes-kafka/labels/automation). We think every SRE team must build the operational knowledge first. But there is an example of a [Cruise Control](./cruise-control/) setup.
 
-Tests are based on the [kube-test](https://github.com/Yolean/kube-test) concept.
-Like the rest of this repo they have `kubectl` as the only local dependency.
+## Outside (out-of-cluster) access
 
-Run self-tests or not. They do generate some load, but indicate if the platform is working or not.
- * To include tests, replace `apply -f` with `apply -R -f` in your `kubectl`s above.
- * Anything that isn't READY in `kubectl get pods -l test-type=readiness --namespace=test-kafka` is a failed test.
+Available for:
+
+ * [Brokers](./outside-services/)
+
+## Stream...
+
+ * [Kubernetes events to Kafka](./events-kube/)
+ * [Container logs to Kafka](https://github.com/Yolean/kubernetes-kafka/pull/131)
+ * [Heapster metrics to Kafka](https://github.com/Yolean/kubernetes-kafka/pull/120)
